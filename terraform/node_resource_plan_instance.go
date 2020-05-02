@@ -20,10 +20,10 @@ type NodePlannableResourceInstance struct {
 }
 
 var (
-	_ GraphNodeSubPath              = (*NodePlannableResourceInstance)(nil)
+	_ GraphNodeModuleInstance       = (*NodePlannableResourceInstance)(nil)
 	_ GraphNodeReferenceable        = (*NodePlannableResourceInstance)(nil)
 	_ GraphNodeReferencer           = (*NodePlannableResourceInstance)(nil)
-	_ GraphNodeResource             = (*NodePlannableResourceInstance)(nil)
+	_ GraphNodeConfigResource       = (*NodePlannableResourceInstance)(nil)
 	_ GraphNodeResourceInstance     = (*NodePlannableResourceInstance)(nil)
 	_ GraphNodeAttachResourceConfig = (*NodePlannableResourceInstance)(nil)
 	_ GraphNodeAttachResourceState  = (*NodePlannableResourceInstance)(nil)
@@ -78,8 +78,8 @@ func (n *NodePlannableResourceInstance) evalTreeDataResource(addr addrs.AbsResou
 
 					// Check and see if any of our dependencies have changes.
 					changes := ctx.Changes()
-					for _, d := range n.StateReferences() {
-						ri, ok := d.(addrs.ResourceInstance)
+					for _, d := range n.References() {
+						ri, ok := d.Subject.(addrs.ResourceInstance)
 						if !ok {
 							continue
 						}
@@ -114,9 +114,9 @@ func (n *NodePlannableResourceInstance) evalTreeDataResource(addr addrs.AbsResou
 			&EvalReadData{
 				Addr:           addr.Resource,
 				Config:         n.Config,
-				Dependencies:   n.StateReferences(),
 				Provider:       &provider,
 				ProviderAddr:   n.ResolvedProvider,
+				ProviderMetas:  n.ProviderMetas,
 				ProviderSchema: &providerSchema,
 				ForcePlanRead:  true, // _always_ produce a Read change, even if the config seems ready
 				OutputChange:   &change,
@@ -175,6 +175,7 @@ func (n *NodePlannableResourceInstance) evalTreeManagedResource(addr addrs.AbsRe
 				CreateBeforeDestroy: n.ForceCreateBeforeDestroy,
 				Provider:            &provider,
 				ProviderAddr:        n.ResolvedProvider,
+				ProviderMetas:       n.ProviderMetas,
 				ProviderSchema:      &providerSchema,
 				State:               &state,
 				OutputChange:        &change,

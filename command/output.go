@@ -23,11 +23,7 @@ type OutputCommand struct {
 }
 
 func (c *OutputCommand) Run(args []string) int {
-	args, err := c.Meta.process(args, false)
-	if err != nil {
-		return 1
-	}
-
+	args = c.Meta.process(args)
 	var module, statePath string
 	var jsonOutput bool
 	cmdFlags := c.Meta.defaultFlagSet("output")
@@ -120,7 +116,7 @@ func (c *OutputCommand) Run(args []string) int {
 				"become available. If you are using interpolation, please verify\n" +
 				"the interpolated value is not empty. You can use the \n" +
 				"`terraform console` command to assist.")
-		return 1
+		return 0
 	}
 
 	if name == "" {

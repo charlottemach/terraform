@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/terraform/backend"
+	localBackend "github.com/hashicorp/terraform/backend/local"
 	"github.com/hashicorp/terraform/command/format"
 	"github.com/hashicorp/terraform/command/jsonplan"
 	"github.com/hashicorp/terraform/command/jsonstate"
@@ -23,11 +24,7 @@ type ShowCommand struct {
 }
 
 func (c *ShowCommand) Run(args []string) int {
-	args, err := c.Meta.process(args, false)
-	if err != nil {
-		return 1
-	}
-
+	args = c.Meta.process(args)
 	cmdFlags := c.Meta.defaultFlagSet("show")
 	var jsonOutput bool
 	cmdFlags.BoolVar(&jsonOutput, "json", false, "produce JSON output")
@@ -47,6 +44,7 @@ func (c *ShowCommand) Run(args []string) int {
 	}
 
 	// Check for user-supplied plugin path
+	var err error
 	if c.pluginPath, err = c.loadPluginPath(); err != nil {
 		c.Ui.Error(fmt.Sprintf("Error loading plugin path: %s", err))
 		return 1
@@ -152,8 +150,16 @@ func (c *ShowCommand) Run(args []string) int {
 			c.Ui.Output(string(jsonPlan))
 			return 0
 		}
-		dispPlan := format.NewPlan(plan.Changes)
-		c.Ui.Output(dispPlan.Format(c.Colorize()))
+
+		// FIXME: We currently call into the local backend for this, since
+		// the "terraform plan" logic lives there and our package call graph
+		// means we can't orient this dependency the other way around. In
+		// future we'll hopefully be able to refactor the backend architecture
+		// a little so that CLI UI rendering always happens in this "command"
+		// package rather than in the backends themselves, but for now we're
+		// accepting this oddity because "terraform show" is a less commonly
+		// used way to render a plan than "terraform plan" is.
+		localBackend.RenderPlan(plan, stateFile.State, schemas, c.Ui, c.Colorize())
 		return 0
 	}
 

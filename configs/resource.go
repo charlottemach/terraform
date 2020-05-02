@@ -20,6 +20,7 @@ type Resource struct {
 	ForEach hcl.Expression
 
 	ProviderConfigRef *ProviderConfigRef
+	Provider          addrs.Provider
 
 	DependsOn []hcl.Traversal
 
@@ -60,22 +61,24 @@ func (r *Resource) Addr() addrs.Resource {
 	}
 }
 
-// ProviderConfigAddr returns the address for the provider configuration
-// that should be used for this resource. This function implements the
-// default behavior of extracting the type from the resource type name if
-// an explicit "provider" argument was not provided.
-func (r *Resource) ProviderConfigAddr() addrs.ProviderConfig {
+// ProviderConfigAddr returns the address for the provider configuration that
+// should be used for this resource. This function returns a default provider
+// config addr if an explicit "provider" argument was not provided.
+func (r *Resource) ProviderConfigAddr() addrs.LocalProviderConfig {
 	if r.ProviderConfigRef == nil {
-		return r.Addr().DefaultProviderConfig()
+		return addrs.LocalProviderConfig{
+			LocalName: r.Provider.Type,
+		}
 	}
 
-	return addrs.ProviderConfig{
-		Type:  r.ProviderConfigRef.Name,
-		Alias: r.ProviderConfigRef.Alias,
+	return addrs.LocalProviderConfig{
+		LocalName: r.ProviderConfigRef.Name,
+		Alias:     r.ProviderConfigRef.Alias,
 	}
 }
 
 func decodeResourceBlock(block *hcl.Block) (*Resource, hcl.Diagnostics) {
+	var diags hcl.Diagnostics
 	r := &Resource{
 		Mode:      addrs.ManagedResourceMode,
 		Type:      block.Labels[0],
@@ -85,7 +88,15 @@ func decodeResourceBlock(block *hcl.Block) (*Resource, hcl.Diagnostics) {
 		Managed:   &ManagedResource{},
 	}
 
-	content, remain, diags := block.Body.PartialContent(resourceBlockSchema)
+	// Produce deprecation messages for any pre-0.12-style
+	// single-interpolation-only expressions. We do this up front here because
+	// then we can also catch instances inside special blocks like "connection",
+	// before PartialContent extracts them.
+	moreDiags := warnForDeprecatedInterpolationsInBody(block.Body)
+	diags = append(diags, moreDiags...)
+
+	content, remain, moreDiags := block.Body.PartialContent(resourceBlockSchema)
+	diags = append(diags, moreDiags...)
 	r.Config = remain
 
 	if !hclsyntax.ValidIdentifier(r.Type) {
@@ -264,6 +275,17 @@ func decodeResourceBlock(block *hcl.Block) (*Resource, hcl.Diagnostics) {
 		}
 	}
 
+	// Now we can validate the connection block references if there are any destroy provisioners.
+	// TODO: should we eliminate standalone connection blocks?
+	if r.Managed.Connection != nil {
+		for _, p := range r.Managed.Provisioners {
+			if p.When == ProvisionerWhenDestroy {
+				diags = append(diags, onlySelfRefs(r.Managed.Connection.Config)...)
+				break
+			}
+		}
+	}
+
 	return r, diags
 }
 
@@ -425,10 +447,10 @@ func decodeProviderConfigRef(expr hcl.Expression, argName string) (*ProviderConf
 //
 // This is a trivial conversion, essentially just discarding the source
 // location information and keeping just the addressing information.
-func (r *ProviderConfigRef) Addr() addrs.ProviderConfig {
-	return addrs.ProviderConfig{
-		Type:  r.Name,
-		Alias: r.Alias,
+func (r *ProviderConfigRef) Addr() addrs.LocalProviderConfig {
+	return addrs.LocalProviderConfig{
+		LocalName: r.Name,
+		Alias:     r.Alias,
 	}
 }
 
